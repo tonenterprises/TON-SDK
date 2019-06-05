@@ -202,11 +202,8 @@ impl<S> Stream for StreamLimiter<S>
     }
 }
 
-fn wait_message_processing<S>(changes_stream: S) -> Result<TransactionId, String>
-    where
-        S: Stream,
-        <S as futures::Stream>::Error: std::fmt::Display
-    {
+fn wait_message_processing<S>(changes_stream: S) -> Result<Transaction, String>
+    where S: Stream<Item = ContractCallState, Error = String> {
 
     let mut tr_id = None;
     for state in changes_stream.wait() {
@@ -221,19 +218,21 @@ fn wait_message_processing<S>(changes_stream: S) -> Result<TransactionId, String
             }
         }
     }
-    tr_id.ok_or("Error: no transaction id")?;
+    let tr_id = tr_id.ok_or("Error: no transaction id")?;
 
-    let tr = Transaction::load(tr_id)
+    let tr = Transaction::load(tr_id.clone())
         .map_err(|err| format!("Error calling load Transaction: {}", err))?
         .limit(Duration::from_secs(REQUEST_TIMEOUT))
         .wait()
         .next()
         .ok_or("Error unwrap stream next while loading Transaction")?
-        .ok_or("Error unwrap result while loading Transaction")?
+        .map_err(|err| format!("Error while loading Transaction: {}", err))?
         .ok_or("Error unwrap returned Transaction")?;
 
     if tr.tr().is_aborted() {
         Err(format!("transaction aborted!\n\n{}", serde_json::to_string_pretty(tr.tr()).unwrap()))
+    } else {
+        Ok(tr)
     }
 }
 
@@ -264,7 +263,7 @@ pub fn create_external_transfer_funds_message(src: AccountId, dst: AccountId, va
 }
 
 fn deploy_contract_and_wait(code_file_name: &str, abi: &str, constructor_params: &str, key_pair: &Keypair) 
-    -> Result<AccountId, String>  {
+    -> Result<AccountId, String> {
 
     // read image from file and construct ContractImage
     let mut state_init = std::fs::File::open(code_file_name)
@@ -282,122 +281,71 @@ fn deploy_contract_and_wait(code_file_name: &str, abi: &str, constructor_params:
         .map_err(|err| format!("Error calling contract method: {}", err))?
         .limit(Duration::from_secs(REQUEST_TIMEOUT));
 
-    // wait transaction id in message-status 
-    let mut tr_id = None;
-    for state in changes_stream.wait() {
-        if let Err(e) = state {
-            return Err(format!("error next state getting: {}", e));
-        }
-        if let Ok(s) = state {
-            //println!("message: {}  next state: {}", s.message_id.to_hex_string(), s.state);
-            if s.message_state == MessageProcessingStatus::Finalized {
-                tr_id = Some(s.message_id.clone());
-                break;
-            }
-        }
-    }
-    tr_id.ok_or("Error: no transaction id")?;
+    wait_message_processing(changes_stream)?;
 
 
     // call deploy method
-    let changes_stream = Contract::deploy_json("constructor".to_owned(), constructor_params.to_owned(), abi.to_owned(), contract_image, Some(key_pair))
-        .map_err(|err| format!("Error deploying contract: {}", err))?;
+    let changes_stream = Contract::deploy_json("constructor".to_owned(), 
+        constructor_params.to_owned(), abi.to_owned(), contract_image, Some(key_pair))
+        .map_err(|err| format!("Error deploying contract: {}", err))?
+        .limit(Duration::from_secs(REQUEST_TIMEOUT));
 
-    // wait transaction id in message-status 
-    let mut tr_id = None;
-    for state in changes_stream.wait() {
-        if let Err(e) = state {
-            panic!("error next state getting: {}", e);
-        }
-        if let Ok(s) = state {
-            //println!("next state: {:?}", s);
-            if s.message_state == MessageProcessingStatus::Finalized {
-                tr_id = Some(s.message_id.clone());
-                break;
-            }
-        }
-    }
-    // contract constructor doesn't return any values so there are no output messages in transaction
-    // so just check deployment transaction created
-    let _tr_id = tr_id.expect("Error: no transaction id");
+    wait_message_processing(changes_stream)?;
 
     Ok(account_id)
 }
 
 
-fn call_contract_and_wait(address: AccountId, func: &str, input: &str, abi: &str, key_pair: Option<&Keypair>) -> String {
+fn call_contract_and_wait(address: AccountId, func: &str, input: &str, abi: &str, key_pair: Option<&Keypair>)
+    -> Result<String, String> {
 
     let contract = Contract::load(address)
-        .expect("Error calling load Contract")
+        .map_err(|err| format!("Error calling load Contract: {}", err))?
+        .limit(Duration::from_secs(REQUEST_TIMEOUT))
         .wait()
         .next()
-        .expect("Error unwrap stream next while loading Contract")
-        .expect("Error unwrap result while loading Contract")
-        .expect("Error unwrap contract while loading Contract");
+        .ok_or("Error unwrap stream next while loading Contract")?
+        .map_err(|err| format!("Error while loading Contract: {}", err))?
+        .ok_or("Error unwrap returned Contract")?;
 
     // call needed method
-    let changes_stream = 
-        Contract::call_json(contract.id(), func.to_owned(), input.to_owned(), abi.to_owned(), key_pair)
-            .expect("Error calling contract method");
+    let changes_stream = Contract::call_json(contract.id(), func.to_owned(), input.to_owned(),
+         abi.to_owned(), key_pair)
+        .map_err(|err| format!("Error deploying contract: {}", err))?
+        .limit(Duration::from_secs(REQUEST_TIMEOUT));
 
-    // wait transaction id in message-status 
-    let mut tr_id = None;
-    for state in changes_stream.wait() {
-        if let Err(e) = state {
-            panic!("error next state getting: {}", e);
-        }
-        if let Ok(s) = state {
-            //println!("next state: {:?}", s);
-            if s.message_state == MessageProcessingStatus::Finalized {
-                tr_id = Some(s.message_id.clone());
-                break;
-            }
-        }
-    }
-    let tr_id = tr_id.expect("Error: no transaction id");
-
-    // OR 
-    // wait message will done and find transaction with the message
-
-    // load transaction object
-    let tr = Transaction::load(tr_id)
-        .expect("Error calling load Transaction")
-        .wait()
-        .next()
-        .expect("Error unwrap stream next while loading Transaction")
-        .expect("Error unwrap result while loading Transaction")
-        .expect("Error unwrap got Transaction");
+    let tr = wait_message_processing(changes_stream)?;
 
     // take external outbound message from the transaction
     let out_msg = tr.load_out_messages()
-        .expect("Error calling load out messages")
+        .map_err(|err| format!("Error calling load out messages: {}", err))?
+        .limit(Duration::from_secs(REQUEST_TIMEOUT))
         .wait()
         .find(|msg| {
-            msg.as_ref()
+            /*msg.as_ref()
                 .expect("error unwrap out message 1")
                 .as_ref()
-                    .expect("error unwrap out message 2")
-                    .msg_type() == MessageType::ExternalOutbound
+                    .ok_or("error unwrap out message 2")
+                    .msg_type() == MessageType::ExternalOutbound*/
+            if let Ok(msg) = msg.as_ref() {
+                if let Some(msg) = msg.as_ref() {
+                    return msg.msg_type() == MessageType::ExternalOutbound
+                }
+            }
+            false
         })
-            .expect("erro unwrap out message 2")
-            .expect("erro unwrap out message 3")
-            .expect("erro unwrap out message 4");
+            .ok_or("erro unwrap out message 2")?
+            .map_err(|err| format!("error unwrap out message 3: {}", err))?
+            .ok_or("erro unwrap out message 4")?;
 
     // take body from the message
-    let responce = out_msg.body().expect("error unwrap out message body").into();
+    let responce = out_msg.body().ok_or("error unwrap out message body")?.into();
 
     // decode the body by ABI
     let result = Contract::decode_function_response_json(abi.to_owned(), func.to_owned(), responce)
-        .expect("Error decoding result");
+        .map_err(|err| format!("Error decoding result: {}", err))?;
 
-    //println!("Contract call result: {}\n", result);
-
-    result
-
-    // this way it is need:
-    // 1. message status with transaction id or transaction object with in-message id
-    // 2. transaction object with out messages ids
-    // 3. message object with body
+    Ok(result)
 }
 
 /*fn call_create(current_address: &mut Option<AccountId>) {
@@ -417,7 +365,7 @@ fn call_contract_and_wait(address: AccountId, func: &str, input: &str, abi: &str
     std::fs::write(str_address, &keypair.to_bytes().to_vec()).expect("Couldn't save wallet key pair");
 
     *current_address = Some(wallet_address);
-}*/
+}
 
 fn call_get_balance(current_address: &Option<AccountId>, params: &[&str]) {
     let address = if params.len() > 0 {
@@ -482,7 +430,7 @@ fn call_send_transaction(current_address: &Option<AccountId>, params: &[&str]) {
     let transaction = u64::from_str_radix(&answer.transaction[2..], 16).expect("Couldn't parse transaction number");
 
     println!("Transaction ID {}", transaction);
-}
+}*/
 
 fn attempts_thread(stat: Arc<Mutex<Statistic>>, params: TesterParameters) {
     let mut inited = false;
