@@ -17,99 +17,199 @@ use super::*;
 
 const REQUEST_TIMEOUT: u64 = 60; // seconds
 const WALLET_ABI: &str = r#"{
-    "ABI version" : 0,
-    "functions" :	[{
-            "inputs": [
-                {"name": "recipient", "type": "bits256"},
-                {"name": "value", "type": "duint"}
-            ],
-            "name": "sendTransaction",
-            "signed": true,
-            "outputs": [
-                {"name": "transaction", "type": "uint64"},
-                {"name": "error", "type": "int8"}
-            ]
-        }, {
-            "inputs": [
-                {"name": "type", "type": "uint8"},
-                {"name": "value", "type": "duint"},
-                {"name": "meta", "type": "bitstring"}
-            ],
-            "name": "createLimit",
-            "signed": true,
-            "outputs": [
-                {"name": "limitId", "type": "uint8"},
-                {"name": "error", "type": "int8"}
-            ]
-        }, {
-            "inputs": [
-                {"name": "limitId", "type": "uint8"},
-                {"name": "value", "type": "duint"},
-                {"name": "meta", "type": "bitstring"}
-            ],
-            "name": "changeLimitById",
-            "signed": true,
-            "outputs": [{"name": "error", "type": "int8"}]
-        }, {
-            "inputs": [{"name": "limitId", "type": "uint8"}],
-            "name": "removeLimit",
-            "signed": true,
-            "outputs": [{"name": "error", "type": "int8"}]
-        }, {
-            "inputs": [{"name": "limitId", "type": "uint8"}],
-            "name": "getLimitById",
-            "outputs": [
-                {
-                    "name": "limitInfo",
-                    "type": "tuple",
-                    "components": [
-                        {"name": "value", "type": "duint"},
-                        {"name": "type", "type": "uint8"},
-                        {"name": "meta", "type": "bitstring"}
-                        ]
-                },
-                {"name": "error", "type": "int8"}
-            ]
-        }, {
-            "inputs": [],
-            "name": "getLimits",
-            "outputs": [
-                {"name": "list", "type": "uint8[]"},
-                {"name": "error", "type": "int8"}
-            ]
-        }, {
-            "inputs": [],
-            "name": "getVersion",
-            "outputs": [
-                {
-                    "name": "version",
-                    "type": "tuple",
-                    "components": [
-                        {"name": "major", "type": "uint16"},
-                        {"name": "minor", "type": "uint16"}
-                    ]
-                },
-                {"name": "error", "type": "int8"}
-            ]
-        }, {
-            "inputs": [],
-            "name": "getBalance",
-            "outputs": [{"name": "balance", "type": "uint64"}]
-        }, {
-            "inputs": [],
-            "name": "constructor",
-            "outputs": []							
-        }, {
-            "inputs": [{"name": "address", "type": "bits256" }],
-            "name": "setSubscriptionAccount",
-                    "signed": true,
-            "outputs": []							
-        }, {
-            "inputs": [],
-            "name": "getSubscriptionAccount",
-            "outputs": [{"name": "address", "type": "bits256" }]							
-        }
-    ]
+	"ABI version" : 0,
+
+	"functions" :	[
+	    {
+	        "inputs": [
+	            {
+	                "name": "recipient",
+	                "type": "bits256"
+	            },
+	            {
+	                "name": "value",
+	                "type": "duint"
+	            }
+	        ],
+	        "name": "sendTransaction",
+					"signed": true,
+	        "outputs": [
+	            {
+	                "name": "transaction",
+	                "type": "uint64"
+	            },
+							{
+	                "name": "error",
+	                "type": "int8"
+	            }
+	        ]
+	    },
+	    {
+	        "inputs": [
+						  {
+	                "name": "type",
+	                "type": "uint8"
+	            },
+							{
+	                "name": "value",
+	                "type": "duint"
+	            },
+							{
+	                "name": "meta",
+	                "type": "bitstring"
+	            }
+					],
+	        "name": "createLimit",
+					"signed": true,
+	        "outputs": [
+							{
+	                "name": "limitId",
+	                "type": "uint8"
+	            },
+							{
+	                "name": "error",
+	                "type": "int8"
+	            }
+	        ]
+	    },
+	    {
+	        "inputs": [
+							{
+	                "name": "limitId",
+	                "type": "uint8"
+	            },
+							{
+	                "name": "value",
+	                "type": "duint"
+	            },
+							{
+	                "name": "meta",
+	                "type": "bitstring"
+	            }
+	        ],
+	        "name": "changeLimitById",
+					"signed": true,
+	        "outputs": [
+							{
+	                "name": "error",
+	                "type": "int8"
+	            }
+	        ]
+	    },
+			{
+	        "inputs": [
+							{
+	                "name": "limitId",
+	                "type": "uint8"
+	            }
+	        ],
+	        "name": "removeLimit",
+					"signed": true,
+	        "outputs": [
+							{
+	                "name": "error",
+	                "type": "int8"
+	            }
+	        ]
+	    },
+			{
+	        "inputs": [
+							{
+	                "name": "limitId",
+	                "type": "uint8"
+	            }
+	        ],
+	        "name": "getLimitById",
+	        "outputs": [
+							{
+									"name": "limitInfo",
+					        "type": "tuple",
+					        "components": [
+											{
+					                "name": "value",
+					                "type": "duint"
+					            },
+											{
+					                "name": "type",
+					                "type": "uint8"
+					            },
+											{
+					                "name": "meta",
+					                "type": "bitstring"
+					            }
+									]
+							},
+							{
+	                "name": "error",
+	                "type": "int8"
+	            }
+	        ]
+	    },
+			{
+	        "inputs": [],
+	        "name": "getLimits",
+	        "outputs": [
+							{
+									"name": "list",
+					        "type": "uint8[]"
+							},
+							{
+	                "name": "error",
+	                "type": "int8"
+	            }
+	        ]
+	    },
+			{
+	        "inputs": [],
+	        "name": "getVersion",
+	        "outputs": [
+							{
+									"name": "version",
+					        "type": "tuple",
+					        "components": [
+											{
+					                "name": "major",
+					                "type": "uint16"
+					            },
+											{
+					                "name": "minor",
+					                "type": "uint16"
+					            }
+									]
+							},
+							{
+	                "name": "error",
+	                "type": "int8"
+	            }
+	        ]
+	    },
+			{
+	        "inputs": [],
+	        "name": "getBalance",
+	        "outputs": [
+							{
+	                "name": "balance",
+	                "type": "uint64"
+	            }
+	        ]
+	    },
+			{
+	        "inputs": [],
+	        "name": "constructor",
+	        "outputs": []							
+	    },
+			{
+	        "inputs": [{"name": "address", "type": "bits256" }],
+	        "name": "setSubscriptionAccount",
+					"signed": true,
+	        "outputs": []							
+	    },
+			{
+	        "inputs": [],
+	        "name": "getSubscriptionAccount",
+	        "outputs": [{"name": "address", "type": "bits256" }]							
+	    }
+	]
 }
 "#;
 
@@ -148,23 +248,28 @@ impl<S> Stream for StreamLimiter<S>
     type Error = String; //T::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        //println!("polled");
         let now = Instant::now();
         if self.started.is_none() {
             self.started = Some(now);
         }
         match self.inner.poll() {
             Ok(Async::Ready(value)) => {
+                //println!("polled - Ok");
                 self.started = Some(now);
                 Ok(Async::Ready(value))
             },
             Err(err) => {
+                //println!("polled - Err");
                 self.started = Some(now);
                 Err(format!("{}", err))
             },
             Ok(Async::NotReady) => {
                 if self.started.unwrap() + self.timeout < now {
+                    //println!("polled - timeout");
                     Err("Error timeout".to_string())
                 } else {
+                    //println!("polled - NotReady");
                     Ok(Async::NotReady)
                 }
             }            
@@ -336,7 +441,7 @@ pub fn attempts_thread(stat: Arc<Mutex<Statistic>>, params: TesterParameters, cl
                     inited = true;
                 },
                 Err(e) => {
-                    stat.log_error_attempt(&format!("Error while initialize: {}", e));
+                    stat.log_error_attempt(&format!("Error while initialization: {}", e));
                     continue;
                 }
             }

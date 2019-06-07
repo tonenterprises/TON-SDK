@@ -24,10 +24,11 @@ use lettre::EmailAddress;
 fn main() {
 
     let stat = Arc::new(Mutex::new(Statistic::new()));
-    
+    let stat1 = Arc::clone(&stat);
+
     let tester_params = TesterParameters{
         acc_count: 2,
-        tr_interval: 60,
+        tr_interval: 20,
         tr_count: 2,
     };
 
@@ -43,20 +44,19 @@ fn main() {
         },
     };
 
-    let reporter_params = ReporterParameters {
+    /*let reporter_params = ReporterParameters {
         emails: vec![EmailAddress::new("".to_string()).expect("error parsing email")],
-        email: EmailAddress::new("".to_string()).expect("error parsing email"),
+        email: EmailAddress::new("s@s.s".to_string()).expect("error parsing email"),
         email_sever: "".to_string(),
         username: "".to_string(),
         password: "".to_string(), 
-        reports_interval: 3600
+        reports_interval: 60
     };
 
-    attempts_thread(stat.clone(), tester_params, client_config);
-
     std::thread::spawn(move || {
-        report_thread(stat, reporter_params);
-    });
+        report_thread(stat1, reporter_params);
+    });*/
 
+    attempts_thread(stat, tester_params, client_config);
 
 }

@@ -36,16 +36,22 @@ impl Statistic {
     }
 
     pub fn log_info(&mut self, message: &str) {
-        self.log.push(format!("{}       {}", Local::now().to_rfc2822(), message));
+        let m = format!("{}       {}", Local::now().to_rfc2822(), message);
+        println!("{}", &m);
+        self.log.push(m);
     }
 
     pub fn log_success_attempt(&mut self, message: &str) {
-        self.log.push(format!("{} OK    {}", Local::now().to_rfc2822(), message));
+        let m = format!("{} OK    {}", Local::now().to_rfc2822(), message);
+        println!("{}", &m);
+        self.log.push(m);
         self.attempts += 1;
     }
 
     pub fn log_error_attempt(&mut self, message: &str) {
-        self.log.push(format!("{} ERROR {}", Local::now().to_rfc2822(), message));
+        let m = format!("{} ERROR {}", Local::now().to_rfc2822(), message);
+        println!("{}", &m);
+        self.log.push(m);
         self.attempts += 1;
         self.fails += 1;
     }
