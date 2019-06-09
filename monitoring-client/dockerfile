@@ -1,15 +1,18 @@
 FROM rust
-COPY . .
-RUN cargo build
-ENV "ACCOUNTS_COUNT"="2"
-ENV "TRANSACTIONS_INTERVAL_SEC"="60"
-ENV "TRANSACTIONS_COUNT"="2"
-ENV "RETHINK_ENDPOINT"="142.93.137.28:28015"
-ENV "RETHINK_DATABASE"="blockchain"
-ENV "KAFKA_ENDPOINT"="142.93.137.28:9092"
-ENV "KAFKA_TOPIC"="requests"
-ENV "KAFKA_ACT_TIMEOUT"="1000"
-ENV "DISCORD_WEBHOOK"="https://discordapp.com/api/webhooks/586169338063749150/w_9eeI-EnL8vCCsupU7hzjdBK-s1-DDJduO-eWzld_Md5MB6yiNGhHZ3XAZYlN0IhxDg"
-ENV "REPORTS_INTERVAL_SEC"="21600"
-ENV "FAIL_REPORTS_INTERVAL_SEC"="300"
-CMD target/release/monitoring-client
+VOLUME /.ssh/
+ENV "ACCOUNTS_COUNT"="2" \
+    "TRANSACTIONS_INTERVAL_SEC"="60" \
+    "TRANSACTIONS_COUNT"="2" \
+    "RETHINK_ENDPOINT"="142.93.137.28:28015" \
+    "RETHINK_DATABASE"="blockchain" \
+    "KAFKA_ENDPOINT"="142.93.137.28:9092" \
+    "KAFKA_TOPIC"="requests" \
+    "KAFKA_ACT_TIMEOUT"="1000" \
+    "DISCORD_WEBHOOK"="" \
+    "REPORTS_INTERVAL_SEC"="21600" \
+    "FAIL_REPORTS_INTERVAL_SEC"="300"
+CMD eval "$(ssh-agent -s)" && \
+    ssh-add /.ssh/id_rsa && \
+    git clone ssh://git@github.com/tonlabs/TON-SDK.git && \
+    cd TON_SDK/monitoring-client && \
+    cargo run
