@@ -5,11 +5,11 @@ use ton_block::{Message, MsgAddressExt, MsgAddressInt, InternalMessageHeader, Gr
 use tvm::bitstring::Bitstring;
 use tvm::types::{AccountId};
 use ed25519_dalek::Keypair;
-use futures::{Stream, Async, Poll};
+use futures::Stream;
 use sha2::Sha512;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::fmt::Display;
+use futures_timer::ext::StreamExt;
 
 
 use ton_sdk::*;
@@ -213,72 +213,8 @@ const WALLET_ABI: &str = r#"{
 }
 "#;
 
-trait WithLimit<S> {
-    fn limit(self, timeout: Duration) -> StreamLimiter<S>;
-}
-
-impl<S: Stream> WithLimit<S> for S {
-    fn limit(self, timeout: Duration) -> StreamLimiter<S> {
-        StreamLimiter::new(self, timeout)
-    }
-}
-
-struct StreamLimiter<S> {
-    inner: S,
-    timeout: Duration,
-    started: Option<Instant>,
-}
-
-impl<S> StreamLimiter<S> {
-    pub fn new(inner: S, timeout: Duration) -> Self {
-        StreamLimiter {
-            inner,
-            timeout,
-            started: None,
-        }
-    }
-}
-
-impl<S> Stream for StreamLimiter<S> 
-    where 
-        S: Stream,
-        S::Error: Display
-{
-    type Item = S::Item;
-    type Error = String; //T::Error;
-
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        //println!("polled");
-        let now = Instant::now();
-        if self.started.is_none() {
-            self.started = Some(now);
-        }
-        match self.inner.poll() {
-            Ok(Async::Ready(value)) => {
-                //println!("polled - Ok");
-                self.started = Some(now);
-                Ok(Async::Ready(value))
-            },
-            Err(err) => {
-                //println!("polled - Err");
-                self.started = Some(now);
-                Err(format!("{}", err))
-            },
-            Ok(Async::NotReady) => {
-                if self.started.unwrap() + self.timeout < now {
-                    //println!("polled - timeout");
-                    Err("Error timeout".to_string())
-                } else {
-                    //println!("polled - NotReady");
-                    Ok(Async::NotReady)
-                }
-            }            
-        }
-    }
-}
-
 fn wait_message_processing<S>(changes_stream: S) -> Result<Transaction, String>
-    where S: Stream<Item = ContractCallState, Error = String> {
+    where S: Stream<Item = ContractCallState, Error = SdkError> {
 
     let mut tr_id = None;
     for state in changes_stream.wait() {
@@ -297,7 +233,7 @@ fn wait_message_processing<S>(changes_stream: S) -> Result<Transaction, String>
 
     let tr = Transaction::load(tr_id.clone())
         .map_err(|err| format!("Error calling load Transaction: {}", err))?
-        .limit(Duration::from_secs(REQUEST_TIMEOUT))
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT))
         .wait()
         .next()
         .ok_or("Error unwrap stream next while loading Transaction")?
@@ -354,7 +290,7 @@ fn deploy_contract_and_wait(code_file_name: &str, abi: &str, constructor_params:
     let msg = create_external_transfer_funds_message(AccountId::from([0_u8; 32]), account_id.clone(), 100000000000);
     let changes_stream = Contract::send_message(msg)
         .map_err(|err| format!("Error calling contract method: {}", err))?
-        .limit(Duration::from_secs(REQUEST_TIMEOUT));
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT));
 
     wait_message_processing(changes_stream)?;
 
@@ -363,7 +299,7 @@ fn deploy_contract_and_wait(code_file_name: &str, abi: &str, constructor_params:
     let changes_stream = Contract::deploy_json("constructor".to_owned(), 
         constructor_params.to_owned(), abi.to_owned(), contract_image, Some(key_pair))
         .map_err(|err| format!("Error deploying contract: {}", err))?
-        .limit(Duration::from_secs(REQUEST_TIMEOUT));
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT));
 
     wait_message_processing(changes_stream)?;
 
@@ -376,7 +312,7 @@ fn call_contract_and_wait(address: AccountId, func: &str, input: &str, abi: &str
 
     let contract = Contract::load(address)
         .map_err(|err| format!("Error calling load Contract: {}", err))?
-        .limit(Duration::from_secs(REQUEST_TIMEOUT))
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT))
         .wait()
         .next()
         .ok_or("Error unwrap stream next while loading Contract")?
@@ -387,14 +323,14 @@ fn call_contract_and_wait(address: AccountId, func: &str, input: &str, abi: &str
     let changes_stream = Contract::call_json(contract.id(), func.to_owned(), input.to_owned(),
          abi.to_owned(), key_pair)
         .map_err(|err| format!("Error deploying contract: {}", err))?
-        .limit(Duration::from_secs(REQUEST_TIMEOUT));
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT));
 
     let tr = wait_message_processing(changes_stream)?;
 
     // take external outbound message from the transaction
     let out_msg = tr.load_out_messages()
         .map_err(|err| format!("Error calling load out messages: {}", err))?
-        .limit(Duration::from_secs(REQUEST_TIMEOUT))
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT))
         .wait()
         .find(|msg| {
             if let Ok(msg) = msg.as_ref() {
@@ -418,22 +354,27 @@ fn call_contract_and_wait(address: AccountId, func: &str, input: &str, abi: &str
     Ok(result)
 }
 
-pub fn attempts_thread(stat: Arc<Mutex<Statistic>>, params: TesterParameters, client_config: NodeClientConfig) {
+pub fn attempts_thread(stat: Arc<Mutex<Statistic>>, config: TesterConfig, client_config: NodeClientConfig) {
 
     let mut inited = false;
     let mut next_acc = 0;
     let mut first_time = true;
-    let mut accounts = Vec::with_capacity(params.acc_count);
+    let mut accounts = Vec::with_capacity(config.acc_count);
+    let mut last_init = Instant::now();
 
-    loop {
+    'main_loop: loop {
         if !first_time {
-            std::thread::sleep(std::time::Duration::from_secs(params.tr_interval));
+            std::thread::sleep(std::time::Duration::from_secs(config.tr_interval));
         }
         first_time = false;
 
+        if last_init + Duration::from_secs(1800) < Instant::now() {
+            last_init = Instant::now();
+            inited = false;
+        }
+
         if !inited {
             let init_res = init(client_config.clone());
-
             let mut stat = stat.lock().unwrap();
             match init_res {
                 Ok(_) => {
@@ -447,7 +388,7 @@ pub fn attempts_thread(stat: Arc<Mutex<Statistic>>, params: TesterParameters, cl
             }
         }
 
-        for _ in accounts.len()..params.acc_count {
+        for _ in accounts.len()..config.acc_count {
 
             let mut csprng = rand::rngs::OsRng::new().unwrap();
             let keypair = Keypair::generate::<Sha512, _>(&mut csprng);
@@ -462,15 +403,15 @@ pub fn attempts_thread(stat: Arc<Mutex<Statistic>>, params: TesterParameters, cl
                 },
                 Err(e) => {
                     stat.log_error_attempt(&format!("Error while deploying: {}", e));
-                    continue;
+                    continue 'main_loop;
                 }
             }
         }
 
-        for _ in 0..params.tr_count {
+        for _ in 0..config.tr_count {
 
             let (acc1, keypair) = accounts.get(next_acc).unwrap();
-            let (acc2, _) = accounts.get((next_acc + 1) % params.acc_count).unwrap();
+            let (acc2, _) = accounts.get((next_acc + 1) % config.acc_count).unwrap();
 
             let str_params = format!("{{ \"recipient\" : \"x{}\", \"value\": \"{}\" }}", acc2.to_hex_string(), 100);
 
@@ -484,11 +425,11 @@ pub fn attempts_thread(stat: Arc<Mutex<Statistic>>, params: TesterParameters, cl
                 },
                 Err(e) => {
                     stat.log_error_attempt(&format!("Error while transferring founds: {}", e));
-                    continue;
+                    continue 'main_loop;
                 }
             }
 
-            next_acc = (next_acc + 1) % params.acc_count;
+            next_acc = (next_acc + 1) % config.acc_count;
         }
     }
 }

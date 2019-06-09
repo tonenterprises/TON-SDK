@@ -1,40 +1,40 @@
 use super::*;
 
-use lettre::smtp::authentication::{Credentials, Mechanism};
-use lettre::{SendableEmail, Envelope, Transport, SmtpClient};
 use chrono::{Local};
 
-pub fn report_thread(stat: Arc<Mutex<Statistic>>, params: ReporterParameters) {
+pub fn report_thread(stat: Arc<Mutex<Statistic>>, config: ReporterConfig, only_errors: bool) {
+
+    if !only_errors {
+        let mut map = std::collections::HashMap::new();
+        map.insert("content", "Hello. Monitoring node client is sucessfully run.");
+
+        let client = reqwest::Client::new();
+        let res = client.post(&config.web_hook)
+            .json(&map)
+            .send();
+
+        match res {
+            Ok(_) => (),
+            Err(err) => {
+                print!("\nERROR SENDING HELLO: {}\n", err);
+            }
+        }
+    }
 
     loop {
-
-        
-        // Connect to a remote server on a custom port
-        let mut mailer = SmtpClient::new_simple("server.tld").unwrap()
-            // Set the name sent during EHLO/HELO, default is `localhost`
-            //.hello_name(ClientId::Domain("my.hostname.tld".to_string()))
-            // Add credentials for authentication
-            .credentials(Credentials::new(params.username.clone(), params.password.clone()))
-            // Enable SMTPUTF8 if the server supports it
-            .smtp_utf8(true)
-            // Configure expected authentication mechanism
-            .authentication_mechanism(Mechanism::Plain)
-            .transport();
-
-        
-        std::thread::sleep(std::time::Duration::from_secs(params.reports_interval));
+        std::thread::sleep(std::time::Duration::from_secs(
+            if only_errors { config.fails_reports_interval } else {config.reports_interval} ));
 
         let mut message = String::new();        
         let mut stat = stat.lock().unwrap();
-        let subject = if stat.fails == 0 {
-            "node client report - SUCCESS"
-        } else {
-            "node client report - ERRORS"
-        }.to_string();
+
+        if only_errors && stat.fails == 0 {
+            continue;
+        }
 
         let m = format!(
             "Since {} there were {} attempts to transfer founds.\n",
-            stat.started.to_rfc2822(), stat.attempts);
+            stat.started.to_rfc2822(), if only_errors { stat.attempts } else { stat.total_attempts });
         message.push_str(&m);
 
         let m = format!("{} of them FAILED\n", stat.fails);
@@ -43,104 +43,43 @@ pub fn report_thread(stat: Arc<Mutex<Statistic>>, params: ReporterParameters) {
         } else {
             &m
         });
-
-        message.push_str("\n");
-        for str in stat.log.iter() {
-            message.push_str(str);
-            message.push_str("\n");
+        if only_errors {
+            let m = format!("Last error: **{}**", stat.last_error);
+            message.push_str(&m);
         }
 
-        /* 
-        println!("\n====== LETTER =======\n");
-        println!("{}", &message);
-        println!("\n====== ====== =======\n");
-        print!("\nREPORT SENT\n");
-        stat.log = vec!();
-        stat.attempts = 0;
-        stat.fails = 0;
-        stat.started = Local::now();
-         */ 
+        /*
+        url='your hook'
+        curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"hello!\"}" $url
+        */
+        let mut map = std::collections::HashMap::new();
+        map.insert("content", message);
 
-        
-        
-        let email = SendableEmail::new(
-            Envelope::new(
-                Some(params.email.clone()),
-                params.emails.clone(),
-            ).expect("error creating Envelope"),
-            subject,
-            message.into_bytes(),
-        );
-
-        match mailer.send(email) {
-            Ok(_) => {
-                print!("\nREPORT SENT\n");
-                stat.log = vec!();
-                stat.attempts = 0;
-                stat.fails = 0;
-                stat.started = Local::now();
+        let client = reqwest::Client::new();
+        let res = client.post(&config.web_hook)
+            .json(&map)
+            .send();
+        match res {
+            Ok(resp) => {
+                if resp.status().is_server_error() || resp.status().is_client_error() {
+                    println!("ERROR SENDING REPORT ({:?})", resp.status().canonical_reason())
+                } else {
+                    print!("\nREPORT SENT\n");
+                    if only_errors {
+                        stat.fails = 0;
+                        stat.started = Local::now();
+                        stat.attempts = 0;
+                    } else {
+                        stat.log = vec!();
+                        stat.total_attempts = 0;
+                        stat.total_fails = 0;
+                        stat.total_started = Local::now();
+                    }
+                }
             }
             Err(err) => {
                 print!("\nERROR SENDING REPORT: {}\n", err);
             }
-        };
-        
+        }
     }
-}
-
-
-
-
-#[test]
-fn test_email() {
-        
-        let params = ReporterParameters {
-            emails: vec![EmailAddress::new("zavarovskii@ya.ru".to_string()).expect("error parsing email")],
-            email: EmailAddress::new("zavarovskii@ya.ru".to_string()).expect("error parsing email"),
-            email_sever: "smtp.yandex.ru".to_string(),
-            username: "zavarovskii".to_string(),
-            password: "Anita439Mvs".to_string(), 
-            reports_interval: 60
-        };
-        
-
-        let mut tls_builder = TlsConnector::builder();
-            tls_builder.min_protocol_version(Some(Protocol::Tlsv10));
-        let tls_parameters =
-            ClientTlsParameters::new(
-                params.email_sever.clone(),
-                tls_builder.build().unwrap()
-            );
-
-
-        // Connect to a remote server on a custom port
-        let mut mailer = SmtpClient::new((&params.email_sever, 465), ClientSecurity::Wrapper(tls_parameters))
-            .unwrap()
-            // Set the name sent during EHLO/HELO, default is `localhost`
-            //.hello_name(ClientId::Domain("my.hostname.tld".to_string()))
-            // Add credentials for authentication
-            .credentials(Credentials::new(params.username.clone(), params.password.clone()))
-            // Enable SMTPUTF8 if the server supports it
-            .smtp_utf8(true)
-            // Configure expected authentication mechanism
-            .authentication_mechanism(Mechanism::Plain)
-            .transport();
-        
-        let email = SendableEmail::new(
-            Envelope::new(
-                Some(params.email.clone()),
-                params.emails.clone(),
-            ).expect("error creating Envelope"),
-            "subject".to_string(),
-            "test".to_string().into_bytes(),
-        );
-
-        match mailer.send(email) {
-            Ok(_) => {
-                print!("\nREPORT SENT\n");
-            }
-            Err(err) => {
-                print!("\nERROR SENDING REPORT: {}\n", err);
-            }
-        };
 }
