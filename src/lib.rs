@@ -30,6 +30,12 @@ extern crate reql_types;
 #[cfg(feature = "node_interaction")]
 extern crate futures;
 
+pub use ton_abi_core::cryptobox::{
+        Ed25519CryptoBox,
+        Ed25519KeyDerivingCryptoBox,
+        Ed25519KeyHoldingCryptoBox,
+        Ed25519KeyProvider};
+
 #[allow(deprecated)]
 #[macro_use]
 mod error;

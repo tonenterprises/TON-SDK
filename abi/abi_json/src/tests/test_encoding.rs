@@ -7,7 +7,7 @@ use tvm::bitstring::{Bit, Bitstring};
 use tvm::cells_serialization::BagOfCells;
 use tvm::stack::{BuilderData, IBitstring, SliceData};
 
-use {Function, Int, Param, ParamType, Token, TokenValue, Uint, ABI_VERSION};
+use {Function, Int, Param, ParamType, Token, TokenValue, Uint, ABI_VERSION, Ed25519KeyHoldingCryptoBox};
 
 macro_rules! int {
     ($number:expr, $size:expr) => {
@@ -72,12 +72,13 @@ fn test_parameters_set(
     // check signing
 
     let pair = Keypair::generate::<Sha512, _>(&mut rand::rngs::OsRng::new().unwrap());
+    let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&pair.to_bytes()).unwrap();
 
     let mut signed_function = not_signed_function.clone();
     signed_function.signed = true;
 
     let signed_test_tree = signed_function
-        .encode_input(inputs.clone(), Some(&pair))
+        .encode_input(inputs.clone(), Some(&mut crypto_box))
         .unwrap();
     let mut message = SliceData::from(signed_test_tree);
 
@@ -1110,8 +1111,9 @@ fn test_reserving_reference() {
     };
 
     let pair = Keypair::generate::<Sha512, _>(&mut rand::rngs::OsRng::new().unwrap());
+    let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&pair.to_bytes()).unwrap();
 
-    let signed_test_tree = signed_function.encode_input(&tokens, Some(&pair)).unwrap();
+    let signed_test_tree = signed_function.encode_input(&tokens, Some(&mut crypto_box)).unwrap();
     let mut signed_test_tree = SliceData::from(signed_test_tree);
 
     let mut signature = SliceData::from(signed_test_tree.drain_reference());

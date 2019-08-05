@@ -4,6 +4,7 @@ use sha2::Sha512;
 use tvm::stack::{BuilderData, SliceData};
 
 use json_abi::{decode_function_response, encode_function_call};
+use Ed25519KeyHoldingCryptoBox;
 
 const WALLET_ABI: &str = r#"{
     "ABI version" : 0,
@@ -139,12 +140,13 @@ fn test_signed_call() {
     }"#;
 
     let pair = Keypair::generate::<Sha512, _>(&mut rand::rngs::OsRng::new().unwrap());
+    let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&pair.to_bytes()).unwrap();
 
     let test_tree = encode_function_call(
         WALLET_ABI.to_owned(),
         "createLimit".to_owned(),
         params.to_owned(),
-        Some(&pair),
+        Some(&mut crypto_box),
     )
     .unwrap();
 
@@ -178,12 +180,13 @@ fn test_not_signed_call() {
     }"#;
 
     let pair = Keypair::generate::<Sha512, _>(&mut rand::rngs::OsRng::new().unwrap());
+    let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&pair.to_bytes()).unwrap();
 
     let test_tree = encode_function_call(
         WALLET_ABI.to_owned(),
         "getLimitById".to_owned(),
         params.to_owned(),
-        Some(&pair),
+        Some(&mut crypto_box),
     )
     .unwrap();
 

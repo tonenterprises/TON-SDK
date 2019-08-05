@@ -202,7 +202,7 @@ fn deploy_contract_and_wait(code_file_name: &str, abi: &str, constructor_params:
     // read image from file and construct ContractImage
     let mut state_init = std::fs::File::open(code_file_name).expect("Unable to open contract code file");
 
-    let contract_image = ContractImage::from_state_init_and_key(&mut state_init, &key_pair.public).expect("Unable to parse contract code file");
+    let contract_image = ContractImage::from_state_init_and_key(&mut state_init, &key_pair.public.to_bytes()).expect("Unable to parse contract code file");
 
     let account_id = contract_image.account_id();
 
@@ -232,8 +232,10 @@ fn deploy_contract_and_wait(code_file_name: &str, abi: &str, constructor_params:
         wait_message_processed_by_id(msg_id.clone());
     });
 
+    let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&key_pair.to_bytes()).unwrap();
+
     // call deploy method
-    let changes_stream = Contract::deploy_json("constructor".to_owned(), constructor_params.to_owned(), abi.to_owned(), contract_image, Some(key_pair))
+    let changes_stream = Contract::deploy_json("constructor".to_owned(), constructor_params.to_owned(), abi.to_owned(), contract_image, Some(&mut crypto_box))
         .expect("Error deploying contract");
 
     // wait transaction id in message-status 
@@ -266,9 +268,12 @@ fn call_contract_and_wait(address: AccountId, func: &str, input: &str, abi: &str
         .expect("Error unwrap result while loading Contract")
         .expect("Error unwrap contract while loading Contract");
 
+    let mut crypto_box = key_pair.map(|pair| Ed25519KeyHoldingCryptoBox::new(&pair.to_bytes()).unwrap());
+    let crypto_box = crypto_box.as_mut().map(|struct_ref| struct_ref as &mut Ed25519CryptoBox);
+
     // call needed method
     let changes_stream = 
-        Contract::call_json(contract.id().into(), func.to_owned(), input.to_owned(), abi.to_owned(), key_pair)
+        Contract::call_json(contract.id().into(), func.to_owned(), input.to_owned(), abi.to_owned(), crypto_box)
             .expect("Error calling contract method");
 
     // wait transaction id in message-status 
@@ -724,7 +729,9 @@ fn cycle_test(params: &[&str]) {
 
         let str_params = format!("{{ \"recipient\" : \"x{}\", \"value\": \"{}\" }}", address_to.to_hex_string(), value);
 
-        Contract::call_json(address_from.clone().into(), "sendTransaction".to_owned(), str_params.to_owned(), WALLET_ABI.to_owned(), Some(&keypair))
+        let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&keypair.to_bytes()).unwrap();
+
+        Contract::call_json(address_from.clone().into(), "sendTransaction".to_owned(), str_params.to_owned(), WALLET_ABI.to_owned(), Some(&mut crypto_box))
                 .expect("Error calling contract method");
 
         std::thread::sleep(std::time::Duration::from_millis(timeout));

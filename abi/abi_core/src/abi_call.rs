@@ -1,10 +1,10 @@
-use sha2::{Digest, Sha256, Sha512};
-use ed25519_dalek::*;
+use sha2::{Digest, Sha256};
 use std::marker::PhantomData;
 use tvm::bitstring::Bitstring;
 use tvm::cells_serialization::BagOfCells;
 use tvm::stack::{BuilderData, SliceData};
 use types::{ABIInParameter, ABIOutParameter, ABITypeSignature, prepend_data_to_chain};
+use super::cryptobox::Ed25519CryptoBox;
 
 pub const   ABI_VERSION: u8                 = 0;
 const 		ABI_VERSION_BITS_SIZE: usize	= 8;
@@ -62,12 +62,13 @@ where
     }
 
     /// Encodes provided function parameters into `Vec<u8>` containing ABI contract call
-    pub fn encode_signed_function_call<T>(fn_name: T, parameters: TIn, pair: &Keypair) -> Vec<u8>
+    pub fn encode_signed_function_call<T>(fn_name: T, parameters: TIn, crypto_box: &mut Ed25519CryptoBox)
+        -> Vec<u8>
     where
         T: Into<String>
     {
         Self::serialize_message(
-            Self::encode_signed_function_call_into_slice(fn_name, parameters, pair).into()
+            Self::encode_signed_function_call_into_slice(fn_name, parameters, crypto_box).into()
         )
     }
 
@@ -80,7 +81,11 @@ where
     }
 
     /// Encodes provided function parameters into `BuilderData` containing ABI contract call
-    pub fn encode_signed_function_call_into_slice<T>(fn_name: T, parameters: TIn, pair: &Keypair) -> BuilderData
+    pub fn encode_signed_function_call_into_slice<T>(
+        fn_name: T,
+        parameters: TIn,
+        crypto_box: &mut Ed25519CryptoBox
+    ) -> BuilderData
     where
         T: Into<String>,
     {
@@ -109,7 +114,7 @@ where
         
         let bag = BagOfCells::with_root(builder.clone().into());
         let hash = bag.get_repr_hash_by_index(0).unwrap();
-        let signature = pair.sign::<Sha512>(hash.as_slice()).to_bytes().to_vec();
+        let signature = crypto_box.sign_ed25519(hash.as_slice()).unwrap();
         let len = signature.len() * 8;
         builder.prepend_reference(BuilderData::with_raw(signature, len));
         builder

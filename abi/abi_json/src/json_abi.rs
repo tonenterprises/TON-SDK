@@ -1,8 +1,7 @@
-use ed25519_dalek::*;
 use serde_json::Value;
 use token::{Detokenizer, Tokenizer};
 use tvm::stack::{BuilderData, SliceData};
-use {ABIError, Contract};
+use {ABIError, Contract, Ed25519CryptoBox};
 
 /// Encodes `parameters` for given `function` of contract described by `abi` into `BuilderData`
 /// which can be used as message body for calling contract
@@ -10,7 +9,7 @@ pub fn encode_function_call(
     abi: String,
     function: String,
     parameters: String,
-    pair: Option<&Keypair>,
+    crypto_box: Option<&mut Ed25519CryptoBox>
 ) -> Result<BuilderData, ABIError> {
     let contract = Contract::load(abi.as_bytes())?;
 
@@ -22,7 +21,7 @@ pub fn encode_function_call(
         .map_err(|err| ABIError::TokenizeError(err))?;
 
     function
-        .encode_input(&tokens, pair)
+        .encode_input(&tokens, crypto_box)
         .map_err(|err| ABIError::SerializationError(err))
 }
 

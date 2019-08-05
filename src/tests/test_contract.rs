@@ -219,7 +219,7 @@ const CONSTRUCTOR_PARAMS: &str = r#"
 }"#;
 
 
-fn test_call_contract(address: AccountId, key_pair: &Keypair) {
+fn test_call_contract(address: AccountId, crypto_box: &mut Ed25519CryptoBox) {
 
     let func = "subscribe".to_string();
     let input = SUBSCRIBE_PARAMS.to_string();
@@ -234,8 +234,9 @@ fn test_call_contract(address: AccountId, key_pair: &Keypair) {
         .expect("Error unwrap contract while loading Contract");
 
     // call needed method
-    let changes_stream = Contract::call_json(contract.id().into(), func.clone(), input, abi.clone(), Some(&key_pair))
-        .expect("Error calling contract method");
+    let changes_stream = Contract::call_json(
+        contract.id().into(), func.clone(), input, abi.clone(), Some(crypto_box))
+            .expect("Error calling contract method");
 
     // wait transaction id in message-status 
     let mut tr_id = None;
@@ -321,8 +322,10 @@ fn test_deploy_and_call_contract() {
 
     let mut csprng = OsRng::new().unwrap();
     let keypair = Keypair::generate::<Sha512, _>(&mut csprng);
+    let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&keypair.to_bytes()).unwrap();
 
-    let contract_image = ContractImage::from_state_init_and_key(&mut state_init, &keypair.public).expect("Unable to parse contract code file");
+    let contract_image = ContractImage::from_state_init_and_key(
+        &mut state_init, &keypair.public.to_bytes()).expect("Unable to parse contract code file");
 
     let account_id = contract_image.account_id();
 
@@ -337,7 +340,7 @@ fn test_deploy_and_call_contract() {
     let input = CONSTRUCTOR_PARAMS.to_string();
     let abi = SUBSCRIBE_CONTRACT_ABI.to_string();
 
-    let changes_stream = Contract::deploy_json(func, input, abi, contract_image, Some(&keypair))
+    let changes_stream = Contract::deploy_json(func, input, abi, contract_image, Some(&mut crypto_box))
         .expect("Error deploying contract");
 
     // wait transaction id in message-status or 
@@ -361,7 +364,7 @@ fn test_deploy_and_call_contract() {
     // so just check deployment transaction created
     let _tr_id = tr_id.expect("Error: no transaction id");
 
-    test_call_contract(account_id, &keypair);
+    test_call_contract(account_id, &mut crypto_box);
 }
 
 /*#[test]
@@ -402,7 +405,8 @@ fn test_contract_image_from_file() {
     let mut csprng = OsRng::new().unwrap();
     let keypair = Keypair::generate::<Sha512, _>(&mut csprng);
 
-    let contract_image = ContractImage::from_state_init_and_key(&mut state_init, &keypair.public).expect("Unable to parse contract code file");
+    let contract_image = ContractImage::from_state_init_and_key(
+        &mut state_init, &keypair.public.to_bytes()).expect("Unable to parse contract code file");
 
     println!("Account ID {}", contract_image.account_id());
 }

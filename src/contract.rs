@@ -8,7 +8,6 @@ use ton_abi_core::types::{ABIInParameter, ABIOutParameter, ABITypeSignature};
 use ton_abi_core::abi_response::ABIResponse;
 use ton_abi_core::abi_call::ABICall;
 use ton_abi_json::json_abi::encode_function_call;
-use ed25519_dalek::{Keypair, PublicKey};
 use ton_block::{
     MessageId,    
     ExternalInboundMessageHeader,
@@ -90,7 +89,7 @@ impl ContractImage {
         Ok(Self{ state_init, id })
     }
 
-    pub fn from_state_init_and_key<T>(state_init_bag: &mut T, pub_key: &PublicKey) -> SdkResult<Self> 
+    pub fn from_state_init_and_key<T>(state_init_bag: &mut T, pub_key: &[u8]) -> SdkResult<Self> 
         where T: Read + Seek {
 
         let mut si_roots = deserialize_cells_tree(state_init_bag)?;
@@ -107,14 +106,14 @@ impl ContractImage {
         if let Some(ref data) = state_init.data {            
             new_data = BuilderData::from(&data); 
             new_data.update_cell(|data, _, _, _, _| {
-                let mut vec = Vec::from(&pub_key.as_bytes().clone()[..]); 
+                let mut vec = Vec::from(pub_key); 
                 vec.push(0x80);
                 *data = vec;
             }, ());
         } else {
             new_data = BuilderData::new();
             new_data.update_cell(|data, _, _, _, _| {
-                let mut vec = Vec::from(&pub_key.as_bytes().clone()[..]); 
+                let mut vec = Vec::from(pub_key); 
                 vec.push(0x80);
                 *data = vec;
             }, ());
@@ -231,14 +230,14 @@ impl Contract {
     // Packs given inputs by abi and asynchronously calls contract.
     // To get calling result - need to load message,
     // it's id and processing status is returned by this function
-    pub fn call<TIn, TOut>(address: AccountAddress, func: String, input: TIn, key_pair: Option<&Keypair>)
+    pub fn call<TIn, TOut>(address: AccountAddress, func: String, input: TIn, crypto_box: Option<&mut Ed25519CryptoBox>)
         -> SdkResult<Box<dyn Stream<Item = ContractCallState, Error = SdkError>>>
         where 
             TIn: ABIInParameter + ABITypeSignature,
             TOut: ABIOutParameter + ABITypeSignature {
 
         // pack params into bag of cells via ABI
-        let msg_body = Self::create_message_body::<TIn, TOut>(func, input, key_pair);
+        let msg_body = Self::create_message_body::<TIn, TOut>(func, input, crypto_box);
         
         let msg = Self::create_message(address, msg_body)?;
 
@@ -253,11 +252,11 @@ impl Contract {
     // Works with json representation of input and abi.
     // To get calling result - need to load message,
     // it's id and processing status is returned by this function
-    pub fn call_json(id: AccountId, func: String, input: String, abi: String, key_pair: Option<&Keypair>)
+    pub fn call_json(id: AccountId, func: String, input: String, abi: String, crypto_box: Option<&mut Ed25519CryptoBox>)
         -> SdkResult<Box<dyn Stream<Item = ContractCallState, Error = SdkError>>> {
 
         // pack params into bag of cells via ABI
-        let msg_body = encode_function_call(abi, func, input, key_pair)
+        let msg_body = encode_function_call(abi, func, input, crypto_box)
             .map_err(|err| SdkError::from(SdkErrorKind::AbiError(err)))?;
         
         let msg = Self::create_message(id.clone().into(), msg_body.into())?;
@@ -272,7 +271,7 @@ impl Contract {
     // Packs given image and input and asynchronously calls contract's constructor.
     // To get deploying result - need to load message,
     // it's id and processing status is returned by this function
-    pub fn deploy<TIn, TOut>(input: TIn, image: ContractImage, key_pair: Option<&Keypair>)
+    pub fn deploy<TIn, TOut>(input: TIn, image: ContractImage, crypto_box: Option<&mut Ed25519CryptoBox>)
         -> SdkResult<Box<dyn Stream<Item = ContractCallState, Error = SdkError>>>
         where
             TIn: ABIInParameter + ABITypeSignature,
@@ -282,7 +281,7 @@ impl Contract {
         // The message contains StateInit struct with code, public key and lib
         // and body with parameters for contract special method - constructor.
 
-        let msg_body = Self::create_message_body::<TIn, TOut>(CONSTRUCTOR_METHOD_NAME.to_string(), input, key_pair);
+        let msg_body = Self::create_message_body::<TIn, TOut>(CONSTRUCTOR_METHOD_NAME.to_string(), input, crypto_box);
 
         let msg = Self::create_deploy_message(Some(msg_body), image)?;
 
@@ -295,10 +294,10 @@ impl Contract {
     // Works with json representation of input and abi.
     // To get calling result - need to load message,
     // it's id and processing status is returned by this function
-    pub fn deploy_json(func: String, input: String, abi: String, image: ContractImage, key_pair: Option<&Keypair>)
+    pub fn deploy_json(func: String, input: String, abi: String, image: ContractImage, crypto_box: Option<&mut Ed25519CryptoBox>)
         -> SdkResult<Box<dyn Stream<Item = ContractCallState, Error = SdkError>>> {
 
-        let msg_body = encode_function_call(abi, func, input, key_pair)
+        let msg_body = encode_function_call(abi, func, input, crypto_box)
             .map_err(|err| SdkError::from(SdkErrorKind::AbiError(err)))?;
 
         let cell: std::sync::Arc<tvm::stack::CellData> = msg_body.into();
@@ -415,14 +414,14 @@ impl Contract {
 
     // Packs given inputs by abi into ton_block::Message struct.
     // Returns message's bag of cells and identifier.
-    pub fn construct_call_message<TIn, TOut>(address: AccountAddress, func: String, input: TIn, key_pair: Option<&Keypair>)
+    pub fn construct_call_message<TIn, TOut>(address: AccountAddress, func: String, input: TIn, crypto_box: Option<&mut Ed25519CryptoBox>)
         -> SdkResult<(Vec<u8>, MessageId)>
         where 
             TIn: ABIInParameter + ABITypeSignature,
             TOut: ABIOutParameter + ABITypeSignature {
 
         // pack params into bag of cells via ABI
-        let msg_body = Self::create_message_body::<TIn, TOut>(func, input, key_pair);
+        let msg_body = Self::create_message_body::<TIn, TOut>(func, input, crypto_box);
         
         let msg = Self::create_message(address, msg_body)?;
 
@@ -433,10 +432,10 @@ impl Contract {
     // Works with json representation of input and abi.
     // Returns message's bag of cells and identifier.
     pub fn construct_call_message_json(address: AccountAddress, func: String, input: String, 
-        abi: String, key_pair: Option<&Keypair>) -> SdkResult<(Vec<u8>, MessageId)> {
+        abi: String, crypto_box: Option<&mut Ed25519CryptoBox>) -> SdkResult<(Vec<u8>, MessageId)> {
 
         // pack params into bag of cells via ABI
-        let msg_body = encode_function_call(abi, func, input, key_pair)
+        let msg_body = encode_function_call(abi, func, input, crypto_box)
             .map_err(|err| SdkError::from(SdkErrorKind::AbiError(err)))?;
 
         let msg = Self::create_message(address, msg_body.into())?;
@@ -446,13 +445,13 @@ impl Contract {
 
     // Packs given image and input into ton_block::Message struct.
     // Returns message's bag of cells and identifier.
-    pub fn construct_deploy_message<TIn, TOut>(input: TIn, image: ContractImage, key_pair: Option<&Keypair>)
+    pub fn construct_deploy_message<TIn, TOut>(input: TIn, image: ContractImage, crypto_box: Option<&mut Ed25519CryptoBox>)
         -> SdkResult<(Vec<u8>, MessageId)>
         where
             TIn: ABIInParameter + ABITypeSignature,
             TOut: ABIOutParameter + ABITypeSignature {
 
-        let msg_body = Self::create_message_body::<TIn, TOut>(CONSTRUCTOR_METHOD_NAME.to_string(), input, key_pair);
+        let msg_body = Self::create_message_body::<TIn, TOut>(CONSTRUCTOR_METHOD_NAME.to_string(), input, crypto_box);
 
         let msg = Self::create_deploy_message(Some(msg_body), image)?;
 
@@ -463,9 +462,9 @@ impl Contract {
     // Works with json representation of input and abi.
     // Returns message's bag of cells and identifier.
     pub fn construct_deploy_message_json(func: String, input: String, abi: String, image: ContractImage, 
-        key_pair: Option<&Keypair>) -> SdkResult<(Vec<u8>, MessageId)> {
+        crypto_box: Option<&mut Ed25519CryptoBox>) -> SdkResult<(Vec<u8>, MessageId)> {
 
-        let msg_body = encode_function_call(abi, func, input, key_pair)
+        let msg_body = encode_function_call(abi, func, input, crypto_box)
             .map_err(|err| SdkError::from(SdkErrorKind::AbiError(err)))?;
 
         let cell: std::sync::Arc<tvm::stack::CellData> = msg_body.into();
@@ -516,12 +515,12 @@ impl Contract {
         Ok(msg)
     }
 
-    fn create_message_body<TIn, TOut>(func: String, input: TIn, key_pair: Option<&Keypair>) -> Arc<CellData>
+    fn create_message_body<TIn, TOut>(func: String, input: TIn, crypto_box: Option<&mut Ed25519CryptoBox>) -> Arc<CellData>
         where
             TIn: ABIInParameter + ABITypeSignature,
             TOut: ABIOutParameter + ABITypeSignature {
 
-        match key_pair {
+        match crypto_box {
             Some(p) => {
                 ABICall::<TIn, TOut>::encode_signed_function_call_into_slice(
                     func, input, p).into()

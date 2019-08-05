@@ -2,6 +2,7 @@
 
 use crate::abi_call::{ABICall, ABI_VERSION};
 use crate::abi_response::{ABIResponse};
+use crate::cryptobox::Ed25519KeyHoldingCryptoBox;
 use crate::types::{
     ABISerialized,
     ABIDeserialized,
@@ -17,7 +18,6 @@ use std::io::Cursor;
 
 use tvm::bitstring::{Bit, Bitstring};
 use tvm::cells_serialization::{deserialize_cells_tree, BagOfCells};
-use tvm::logger;
 use tvm::stack::{BuilderData, SliceData, IBitstring};
 
 fn get_function_id(signature: &[u8]) -> u32 {
@@ -60,8 +60,9 @@ fn test_parameters_set<I, O>(func_name: &str, input: I, expected_tree: BuilderDa
     // check signing
 
     let pair = Keypair::generate::<Sha512, _>(&mut OsRng::new().unwrap());
+    let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&pair.to_bytes()).unwrap();
 
-    let message = ABICall::<I, O>::encode_signed_function_call(func_name, input.clone(), &pair);
+    let message = ABICall::<I, O>::encode_signed_function_call(func_name, input.clone(), &mut crypto_box);
     let mut message = SliceData::from(deserialize(message.clone()));
 
     let mut signature = SliceData::from(message.drain_reference());
@@ -1034,11 +1035,12 @@ mod decode_encoded {
 
 #[test]
 fn test_signed_one_input_and_output() {
-    logger::init();
     let pair = Keypair::generate::<Sha512, _>(&mut OsRng::new().unwrap());
+    let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&pair.to_bytes()).unwrap();
 
     let func_name = "test_one_input_and_output";
-    let message = ABICall::<(u128,), (bool,)>::encode_signed_function_call(func_name, (1979,), &pair);
+    let message = ABICall::<(u128,), (bool,)>::encode_signed_function_call(
+        func_name, (1979,), &mut crypto_box);
     let mut message = SliceData::from(deserialize(message.clone()));
 
     let mut signature = SliceData::from(message.drain_reference());
@@ -1052,7 +1054,6 @@ fixed_abi_array!(Bits1024, 4, bits1024_array4);
 
 #[test]
 fn test_reserving_reference() {
-    logger::init();
 
     let mut bits: Bits1024 = [Bit::Zero; 1024].into();
 
@@ -1065,9 +1066,11 @@ fn test_reserving_reference() {
     let input_data = [bits.clone(), bits.clone(), bits.clone(), bits.clone()];
 
     let pair = Keypair::generate::<Sha512, _>(&mut OsRng::new().unwrap());
+    let mut crypto_box = Ed25519KeyHoldingCryptoBox::new(&pair.to_bytes()).unwrap();
 
     let func_name = "test_reserving_reference";
-    let message = ABICall::<(bits1024_array4,), ()>::encode_signed_function_call(func_name, (input_data.into(),), &pair);
+    let message = ABICall::<(bits1024_array4,), ()>::encode_signed_function_call(
+        func_name, (input_data.into(),), &mut crypto_box);
     let mut message = SliceData::from(deserialize(message.clone()));
 
     let mut signature = SliceData::from(message.drain_reference());

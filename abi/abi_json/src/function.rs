@@ -1,8 +1,7 @@
 //! Contract function call builder.
 
-use sha2::{Digest, Sha256, Sha512};
-use {Param, Token, TokenValue};
-use ed25519_dalek::*;
+use sha2::{Digest, Sha256};
+use {Param, Token, TokenValue, Ed25519CryptoBox};
 use tvm::stack::{BuilderData, SliceData};
 use tvm::bitstring::Bitstring;
 use tvm::cells_serialization::BagOfCells;
@@ -32,7 +31,8 @@ pub struct Function {
 #[derive(Debug)]
 pub enum SerializationError {
     WrongParameterType,
-    KeyPairNeeded,
+    CryptoBoxNeeded,
+    SignatureError(String)
 }
 
 #[derive(Debug)]
@@ -116,7 +116,7 @@ impl Function {
     pub fn encode_input(
         &self,
         tokens: &[Token],
-        pair: Option<&Keypair>
+        crypto_box: Option<&mut Ed25519CryptoBox>
     ) -> Result<BuilderData, SerializationError> {
         let params = self.input_params();
 
@@ -124,8 +124,8 @@ impl Function {
             return Err(SerializationError::WrongParameterType);
         }
 
-        if self.signed && pair.is_none() {
-            return Err(SerializationError::KeyPairNeeded);
+        if self.signed && crypto_box.is_none() {
+            return Err(SerializationError::CryptoBoxNeeded);
         }
 
         // prepare standard message
@@ -156,7 +156,8 @@ impl Function {
         if self.signed {
             let bag = BagOfCells::with_root(builder.clone().into());
             let hash = bag.get_repr_hash_by_index(0).unwrap();
-            let signature = pair.unwrap().sign::<Sha512>(hash.as_slice()).to_bytes().to_vec();
+            let signature = crypto_box.unwrap().sign_ed25519(hash.as_slice())
+                .map_err(|err| SerializationError::SignatureError(format!("Message sign error: {}", err)))?;
             let len = signature.len() * 8;
             builder.prepend_reference(BuilderData::with_raw(signature, len));
         }
