@@ -5,6 +5,9 @@ use sha2::Sha512;
 pub trait Ed25519CryptoBox {
     /// Signs provided data with Ed25519 algrotihm
     fn sign_ed25519(&mut self, data: &[u8]) -> CryptoBoxResult<Vec<u8>>;
+    
+    /// Returns public key
+    fn get_ed25519_public_key(&mut self) -> CryptoBoxResult<Vec<u8>>;
 }
 
 /// Trait for Ed25519 keys fetching
@@ -33,6 +36,10 @@ impl Ed25519CryptoBox for Ed25519KeyHoldingCryptoBox {
     fn sign_ed25519(&mut self, data: &[u8]) -> CryptoBoxResult<Vec<u8>> {
         Ok(self.key_pair.sign::<Sha512>(data).to_bytes().to_vec())
     }
+
+    fn get_ed25519_public_key(&mut self) -> CryptoBoxResult<Vec<u8>> {
+        Ok(self.key_pair.public.to_bytes().to_vec())
+    }
 }
 
 
@@ -43,29 +50,41 @@ pub struct Ed25519KeyDerivingCryptoBox {
 }
 
 impl Ed25519KeyDerivingCryptoBox {
-    /// Creates srtuct instance with `Ed25519KeyProvider`
+    /// Create srtuct instance with `Ed25519KeyProvider`
     pub fn new(key_provider: Box<Ed25519KeyProvider>) -> CryptoBoxResult<Ed25519KeyDerivingCryptoBox> {
         Ok(Ed25519KeyDerivingCryptoBox { key_pair: None, key_provider })
+    }
+
+    /// Fetch key pair if needed and return it
+    fn get_pair(&mut self) -> CryptoBoxResult<&Keypair> {
+        match &self.key_pair {
+            None => {
+                let key_pair_data = self.key_provider.get_ed25519_key_pair()?;
+
+                self.key_pair = Some(
+                    Keypair::from_bytes(&key_pair_data)
+                        .map_err(|err| CryptoBoxError::from(CryptoBoxErrorKind::SignatureError(
+                            format!("Keypair construction failed: {}", err))))?
+                );
+            },
+            _ => {}
+        };
+
+        Ok(self.key_pair.as_ref().unwrap())
     }
 }
 
 impl Ed25519CryptoBox for Ed25519KeyDerivingCryptoBox {
     fn sign_ed25519(&mut self, data: &[u8]) -> CryptoBoxResult<Vec<u8>> {
-        let key_pair = if let Some(pair) = &self.key_pair {
-            pair
-        } else {
-            let key_pair_data = self.key_provider.get_ed25519_key_pair()?;
-
-            self.key_pair = Some(
-                Keypair::from_bytes(&key_pair_data)
-                    .map_err(|err| CryptoBoxError::from(CryptoBoxErrorKind::SignatureError(
-                        format!("Keypair construction failed: {}", err))))?
-            );
-
-            self.key_pair.as_ref().unwrap()
-        };
+        let key_pair = self.get_pair()?;
 
         Ok(key_pair.sign::<Sha512>(data).to_bytes().to_vec())
+    }
+
+    fn get_ed25519_public_key(&mut self) -> CryptoBoxResult<Vec<u8>> {
+        let key_pair = self.get_pair()?;
+
+        Ok(key_pair.public.to_bytes().to_vec())
     }
 }
 
