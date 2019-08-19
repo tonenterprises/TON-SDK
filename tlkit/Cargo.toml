@@ -1,0 +1,12 @@
+[package]
+name = "tlkit"
+version = "0.1.0"
+authors = ["TonLabs"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = "2.33.0"
+ton_sdk = { path = "../ton_sdk" }
+tvm = { git = "ssh://git@github.com/tonlabs/sdk-emulator.git", branch = "feature-dev", package = "tvm" }
