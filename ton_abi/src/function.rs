@@ -116,13 +116,13 @@ impl Function {
     pub fn get_id(&self) -> u32 {
         match self.id {
             Some(id) => id,
-            None => self.get_function_id()
+            None => self.get_function_id() & 0x7FFFFFFF,
         }
     }
 
     /// Returns ID for call message
     pub fn get_input_id(&self) -> u32 {
-        self.get_id() & 0x7FFFFFFF
+        self.get_id() 
     }
 
     /// Returns ID for response message
